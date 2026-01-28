@@ -74,6 +74,9 @@ func main() {
 	mux.HandleFunc("/api/accounts/", middleware.BasicAuth(cfg.AdminUser, cfg.AdminPass, apiHandler.HandleAccountByID))
 	mux.HandleFunc("/api/export", middleware.BasicAuth(cfg.AdminUser, cfg.AdminPass, apiHandler.HandleExport))
 	mux.HandleFunc("/api/import", middleware.BasicAuth(cfg.AdminUser, cfg.AdminPass, apiHandler.HandleImport))
+	mux.HandleFunc("/api/register", middleware.BasicAuth(cfg.AdminUser, cfg.AdminPass, apiHandler.HandleRegister))
+	mux.HandleFunc("/api/register/verify", middleware.BasicAuth(cfg.AdminUser, cfg.AdminPass, apiHandler.HandleRegisterVerify))
+	mux.HandleFunc("/api/register/batch", middleware.BasicAuth(cfg.AdminUser, cfg.AdminPass, apiHandler.HandleBatchRegister))
 
 	mux.HandleFunc(cfg.AdminPath+"/", middleware.BasicAuthHandler(cfg.AdminUser, cfg.AdminPass, http.StripPrefix(cfg.AdminPath, web.StaticHandler())))
 

@@ -289,6 +289,9 @@
         <div class="card-header">
           <h2 class="card-title">账号管理</h2>
           <div class="actions">
+            <button class="btn btn-primary" onclick="openRegisterModal()">
+              批量注册
+            </button>
             <button class="btn btn-primary" onclick="exportAccounts()">
               导出
             </button>
@@ -387,6 +390,60 @@
             保存
           </button>
         </form>
+      </div>
+    </div>
+
+    <div class="modal" id="registerModal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 class="modal-title">批量注册</h3>
+          <button class="modal-close" onclick="closeRegisterModal()">&times;</button>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">注册数量</label>
+            <input
+              type="number"
+              class="form-input"
+              id="registerCount"
+              value="5"
+              min="1"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">并发线程数</label>
+            <input
+              type="number"
+              class="form-input"
+              id="workerCount"
+              value="5"
+              min="1"
+              max="8"
+            />
+          </div>
+        </div>
+        <div class="form-group" style="margin-top: 8px;">
+          <small style="color: #a1a1aa;">
+            使用多线程并发注册（无头模式），最大 8 线程
+          </small>
+        </div>
+        <div id="registerProgress" style="display: none; margin: 16px 0;">
+          <div style="color: #a1a1aa; font-size: 0.875rem; margin-bottom: 8px;">
+            注册状态: <span id="progressText">准备中...</span>
+          </div>
+          <div style="background: rgba(255,255,255,0.1); border-radius: 4px; height: 8px; overflow: hidden;">
+            <div id="progressBar" style="background: linear-gradient(90deg, #06b6d4, #8b5cf6); height: 100%; width: 0%; transition: width 0.3s;"></div>
+          </div>
+          <div id="registerLog" style="margin-top: 12px; max-height: 250px; overflow-y: auto; font-size: 0.75rem; color: #a1a1aa; background: rgba(0,0,0,0.2); padding: 8px; border-radius: 4px;"></div>
+        </div>
+        <button
+          class="btn btn-primary"
+          style="width: 100%"
+          onclick="startBatchRegister()"
+          id="startRegisterBtn"
+        >
+          开始批量注册
+        </button>
       </div>
     </div>
 
@@ -560,6 +617,85 @@
 
       function exportAccounts() {
         window.location.href = "/api/export";
+      }
+
+      function openRegisterModal() {
+        document.getElementById('registerModal').classList.add('active');
+        document.getElementById('registerProgress').style.display = 'none';
+        document.getElementById('registerLog').innerHTML = '';
+        document.getElementById('startRegisterBtn').disabled = false;
+        document.getElementById('startRegisterBtn').textContent = '开始注册';
+      }
+
+      function closeRegisterModal() {
+        document.getElementById('registerModal').classList.remove('active');
+      }
+
+      function addLog(message, isError = false) {
+        const log = document.getElementById('registerLog');
+        const time = new Date().toLocaleTimeString();
+        const color = isError ? '#ef4444' : '#22c55e';
+        log.innerHTML += `<div style="color: ${color}">[${time}] ${message}</div>`;
+        log.scrollTop = log.scrollHeight;
+      }
+
+      async function startBatchRegister() {
+        const count = parseInt(document.getElementById('registerCount').value) || 5;
+        const workers = parseInt(document.getElementById('workerCount').value) || 5;
+        const btn = document.getElementById('startRegisterBtn');
+        const progress = document.getElementById('registerProgress');
+        const progressText = document.getElementById('progressText');
+        const progressBar = document.getElementById('progressBar');
+        const log = document.getElementById('registerLog');
+
+        btn.disabled = true;
+        btn.textContent = '注册中...';
+        progress.style.display = 'block';
+        log.innerHTML = '';
+        progressText.textContent = `正在注册 ${count} 个账号 (${workers} 线程并发)`;
+        progressBar.style.width = '10%';
+
+        addLog(`开始批量注册: 数量=${count}, 线程=${workers}`);
+
+        try {
+          const res = await fetch('/api/register/batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ count: count, workers: workers })
+          });
+          const result = await res.json();
+
+          progressBar.style.width = '100%';
+
+          if (result.success) {
+            addLog(`批量注册完成!`);
+            addLog(`总数: ${result.total}, 成功: ${result.registered}, 失败: ${result.failed}, 已保存: ${result.saved}`);
+            addLog(`耗时: ${result.duration}`);
+
+            // 显示每个结果
+            if (result.results) {
+              result.results.forEach((r, i) => {
+                if (r.success) {
+                  addLog(`✓ [${i+1}] ${r.email}`);
+                } else {
+                  addLog(`✗ [${i+1}] ${r.error}`, true);
+                }
+              });
+            }
+
+            progressText.textContent = `完成! 成功: ${result.registered}/${result.total}`;
+          } else {
+            addLog(`批量注册失败: ${result.error}`, true);
+            progressText.textContent = '注册失败';
+          }
+        } catch (err) {
+          addLog(`请求异常: ${err.message}`, true);
+          progressText.textContent = '请求失败';
+        }
+
+        btn.textContent = '重新注册';
+        btn.disabled = false;
+        loadAccounts();
       }
 
       async function importAccounts(event) {

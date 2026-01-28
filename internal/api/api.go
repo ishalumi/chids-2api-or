@@ -9,11 +9,13 @@ import (
 	"time"
 
 	"orchids-api/internal/clerk"
+	"orchids-api/internal/register"
 	"orchids-api/internal/store"
 )
 
 type API struct {
-	store *store.Store
+	store    *store.Store
+	register *register.RegisterService
 }
 
 type ExportData struct {
@@ -29,12 +31,18 @@ type ImportResult struct {
 }
 
 func New(s *store.Store) *API {
-	return &API{store: s}
+	return &API{
+		store:    s,
+		register: register.New(),
+	}
 }
 
 func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/accounts", a.HandleAccounts)
 	mux.HandleFunc("/api/accounts/", a.HandleAccountByID)
+	mux.HandleFunc("/api/register", a.HandleRegister)
+	mux.HandleFunc("/api/register/verify", a.HandleRegisterVerify)
+	mux.HandleFunc("/api/register/batch", a.HandleBatchRegister)
 }
 
 func (a *API) HandleAccounts(w http.ResponseWriter, r *http.Request) {
@@ -206,4 +214,283 @@ func (a *API) HandleImport(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
+}
+
+// HandleRegister 处理自动注册请求
+func (a *API) HandleRegister(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req register.RegisterJSON
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		// 如果没有请求体，使用自动模式
+		req = register.RegisterJSON{}
+	}
+
+	// 如果提供了邮箱，使用自定义邮箱模式（需要手动验证）
+	if req.Email != "" {
+		password := req.Password
+		if password == "" {
+			password = "OrchidsAuto@2024!"
+		}
+
+		result, signUpID, err := a.register.RegisterWithCustomEmail(req.Email, password)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false,
+				"error":   err.Error(),
+			})
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":    true,
+			"sign_up_id": signUpID,
+			"email":      result.Email,
+			"message":    "验证码已发送，请调用 /api/register/verify 完成验证",
+		})
+		return
+	}
+
+	// 自动模式：使用临时邮箱
+	result, err := a.register.RegisterWithOptions(req.Headless)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// 从 clerk 获取完整账号信息
+	info, err := clerk.FetchAccountInfo(result.ClientCookie)
+	if err != nil {
+		log.Printf("[注册] 获取账号信息失败: %v", err)
+		// 即使获取失败也保存基本信息
+		info = &clerk.AccountInfo{
+			ClientCookie: result.ClientCookie,
+			Email:        result.Email,
+			ProjectID:    "280b7bae-cd29-41e4-a0a6-7f603c43b607",
+		}
+	} else {
+		log.Printf("[注册] 获取账号信息成功: SessionID=%s, UserID=%s", info.SessionID, info.UserID)
+	}
+
+	// 自动创建账号
+	acc := &store.Account{
+		Name:         "Auto-" + result.Email[:strings.Index(result.Email, "@")],
+		Email:        info.Email,
+		ClientCookie: info.ClientCookie,
+		ClientUat:    info.ClientUat,
+		SessionID:    info.SessionID,
+		UserID:       info.UserID,
+		ProjectID:    info.ProjectID,
+		AgentMode:    "claude-opus-4.5",
+		Weight:       1,
+		Enabled:      true,
+	}
+
+	if err := a.store.CreateAccount(acc); err != nil {
+		log.Printf("Failed to save registered account: %v", err)
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":       true,
+		"email":         info.Email,
+		"password":      result.Password,
+		"client_cookie": info.ClientCookie,
+		"client_uat":    info.ClientUat,
+		"session_id":    info.SessionID,
+		"user_id":       info.UserID,
+		"account_id":    acc.ID,
+	})
+}
+
+// HandleRegisterVerify 处理手动验证码验证
+func (a *API) HandleRegisterVerify(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req register.RegisterJSON
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.SignUpID == "" || req.Code == "" {
+		http.Error(w, "sign_up_id and code are required", http.StatusBadRequest)
+		return
+	}
+
+	result, err := a.register.CompleteRegistration(req.SignUpID, req.Code)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	// 自动创建账号
+	acc := &store.Account{
+		Name:         "Auto-" + result.Email[:strings.Index(result.Email, "@")],
+		Email:        result.Email,
+		ClientCookie: result.ClientCookie,
+		SessionID:    result.SessionID,
+		UserID:       result.UserID,
+		ProjectID:    "280b7bae-cd29-41e4-a0a6-7f603c43b607",
+		AgentMode:    "claude-opus-4.5",
+		Weight:       1,
+		Enabled:      true,
+	}
+
+	if err := a.store.CreateAccount(acc); err != nil {
+		log.Printf("Failed to save registered account: %v", err)
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":       true,
+		"email":         result.Email,
+		"client_cookie": result.ClientCookie,
+		"session_id":    result.SessionID,
+		"user_id":       result.UserID,
+		"account_id":    acc.ID,
+	})
+}
+
+// HandleBatchRegister 处理批量注册请求
+func (a *API) HandleBatchRegister(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPost {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "Method not allowed",
+		})
+		return
+	}
+
+	var req register.RegisterJSON
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		req = register.RegisterJSON{Count: 1, Workers: 5}
+	}
+
+	// 默认值
+	count := req.Count
+	if count <= 0 {
+		count = 1
+	}
+	// 不限制最大数量，由用户自行决定
+
+	workers := req.Workers
+	if workers <= 0 {
+		workers = 5
+	}
+	if workers > 8 {
+		workers = 8
+	}
+
+	log.Printf("[批量注册API] 收到请求: count=%d, workers=%d", count, workers)
+
+	// 执行批量注册
+	batchResult := a.register.BatchRegister(count, workers)
+
+	if batchResult == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "批量注册返回空结果",
+		})
+		return
+	}
+
+	// 保存成功的账号到数据库
+	savedCount := 0
+	for i, result := range batchResult.Results {
+		if result == nil {
+			log.Printf("[批量注册] 结果 #%d 为 nil，跳过", i+1)
+			continue
+		}
+
+		log.Printf("[批量注册] 处理结果 #%d: email=%s, success=%v, cookie长度=%d, error=%s",
+			i+1, result.Email, result.Success, len(result.ClientCookie), result.Error)
+
+		if !result.Success {
+			log.Printf("[批量注册] 结果 #%d 注册失败，跳过: %s", i+1, result.Error)
+			continue
+		}
+		if result.ClientCookie == "" {
+			log.Printf("[批量注册] 结果 #%d Cookie为空，跳过", i+1)
+			continue
+		}
+
+		// 获取完整账号信息
+		info, err := clerk.FetchAccountInfo(result.ClientCookie)
+		if err != nil {
+			log.Printf("[批量注册] 获取账号信息失败 (%s): %v", result.Email, err)
+			info = &clerk.AccountInfo{
+				ClientCookie: result.ClientCookie,
+				Email:        result.Email,
+				ProjectID:    "280b7bae-cd29-41e4-a0a6-7f603c43b607",
+			}
+		}
+
+		// 创建账号
+		emailParts := strings.Split(result.Email, "@")
+		accName := "Auto-" + emailParts[0]
+
+		acc := &store.Account{
+			Name:         accName,
+			Email:        info.Email,
+			ClientCookie: info.ClientCookie,
+			ClientUat:    info.ClientUat,
+			SessionID:    info.SessionID,
+			UserID:       info.UserID,
+			ProjectID:    info.ProjectID,
+			AgentMode:    "claude-opus-4.5",
+			Weight:       1,
+			Enabled:      true,
+		}
+
+		if err := a.store.CreateAccount(acc); err != nil {
+			log.Printf("[批量注册] 保存账号失败 (%s): %v", result.Email, err)
+		} else {
+			savedCount++
+			log.Printf("[批量注册] 保存账号成功 (%s), ID=%d, 已保存%d个", result.Email, acc.ID, savedCount)
+		}
+	}
+
+	// 构建简化的结果（避免 JSON 编码问题）
+	simpleResults := make([]map[string]interface{}, 0)
+	for _, r := range batchResult.Results {
+		if r == nil {
+			continue
+		}
+		simpleResults = append(simpleResults, map[string]interface{}{
+			"email":   r.Email,
+			"success": r.Success,
+			"error":   r.Error,
+		})
+	}
+
+	response := map[string]interface{}{
+		"success":    true,
+		"total":      batchResult.Total,
+		"registered": batchResult.Success,
+		"failed":     batchResult.Failed,
+		"saved":      savedCount,
+		"duration":   batchResult.Duration,
+		"results":    simpleResults,
+	}
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("[批量注册API] JSON编码失败: %v", err)
+	}
 }

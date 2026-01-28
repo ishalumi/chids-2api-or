@@ -4,7 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"orchids-api/internal/tiktoken"
 )
+
+// 最大上下文 token 数（保守估计 Orchids 免费限制）
+const MaxContextTokens = 60000
 
 // ImageSource 表示图片来源
 type ImageSource struct {
@@ -245,7 +250,7 @@ func formatToolResultContent(content interface{}) string {
 	}
 }
 
-// BuildPromptV2 构建优化的 prompt
+// BuildPromptV2 构建优化的 prompt（带上下文截断）
 func BuildPromptV2(req ClaudeAPIRequest) string {
 	var sections []string
 
@@ -278,13 +283,7 @@ func BuildPromptV2(req ClaudeAPIRequest) string {
 		}
 	}
 
-	// 4. 对话历史
-	history := FormatMessagesAsMarkdown(req.Messages)
-	if history != "" {
-		sections = append(sections, fmt.Sprintf("<conversation_history>\n%s\n</conversation_history>", history))
-	}
-
-	// 5. 当前用户请求
+	// 4. 当前用户请求（先提取）
 	var currentRequest string
 	if len(req.Messages) > 0 {
 		lastMsg := req.Messages[len(req.Messages)-1]
@@ -296,7 +295,118 @@ func BuildPromptV2(req ClaudeAPIRequest) string {
 		currentRequest = "继续"
 	}
 
+	// 5. 计算已用 token（系统提示 + 当前请求）
+	basePrompt := strings.Join(sections, "\n\n") + "\n\n<user_request>\n" + currentRequest + "\n</user_request>"
+	baseTokens := tiktoken.EstimateTextTokens(basePrompt)
+	availableForHistory := MaxContextTokens - baseTokens - 1000 // 留 1000 token 余量给输出
+
+	// 6. 对话历史（带截断）
+	history := FormatMessagesWithLimit(req.Messages, availableForHistory)
+	if history != "" {
+		sections = append(sections, fmt.Sprintf("<conversation_history>\n%s\n</conversation_history>", history))
+	}
+
 	sections = append(sections, fmt.Sprintf("<user_request>\n%s\n</user_request>", currentRequest))
 
 	return strings.Join(sections, "\n\n")
+}
+
+// FormatMessagesWithLimit 格式化消息历史，限制 token 数
+// 策略：保留第一条用户消息（任务定义）+ 尽可能多的最近消息
+func FormatMessagesWithLimit(messages []Message, maxTokens int) string {
+	if len(messages) == 0 || maxTokens <= 0 {
+		return ""
+	}
+
+	// 排除最后一条 user 消息（它会单独作为当前请求）
+	historyMessages := messages
+	if len(messages) > 0 && messages[len(messages)-1].Role == "user" {
+		historyMessages = messages[:len(messages)-1]
+	}
+
+	if len(historyMessages) == 0 {
+		return ""
+	}
+
+	// 1. 首先保留第一条用户消息（通常是任务定义）
+	var firstUserTurn string
+	var firstUserIndex int = -1
+	for i, msg := range historyMessages {
+		if msg.Role == "user" {
+			userContent := formatUserMessage(msg.Content)
+			if userContent != "" {
+				firstUserTurn = fmt.Sprintf("<turn index=\"1\" role=\"user\" context=\"initial_task\">\n%s\n</turn>", userContent)
+				firstUserIndex = i
+				break
+			}
+		}
+	}
+
+	firstUserTokens := 0
+	if firstUserTurn != "" {
+		firstUserTokens = tiktoken.EstimateTextTokens(firstUserTurn)
+	}
+
+	// 如果第一条消息就超出限制，只保留第一条
+	if firstUserTokens >= maxTokens {
+		return firstUserTurn
+	}
+
+	// 2. 从最新的消息开始，向前添加直到超出限制
+	var recentTurns []string
+	totalTokens := firstUserTokens
+	truncationNeeded := false
+
+	for i := len(historyMessages) - 1; i >= 0; i-- {
+		// 跳过第一条用户消息（已单独处理）
+		if i == firstUserIndex {
+			continue
+		}
+
+		msg := historyMessages[i]
+		var turnContent string
+
+		switch msg.Role {
+		case "user":
+			userContent := formatUserMessage(msg.Content)
+			if userContent != "" {
+				turnContent = fmt.Sprintf("<turn role=\"user\">\n%s\n</turn>", userContent)
+			}
+		case "assistant":
+			assistantContent := formatAssistantMessage(msg.Content)
+			if assistantContent != "" {
+				turnContent = fmt.Sprintf("<turn role=\"assistant\">\n%s\n</turn>", assistantContent)
+			}
+		}
+
+		if turnContent == "" {
+			continue
+		}
+
+		turnTokens := tiktoken.EstimateTextTokens(turnContent)
+		if totalTokens+turnTokens > maxTokens {
+			truncationNeeded = true
+			break
+		}
+
+		recentTurns = append(recentTurns, turnContent)
+		totalTokens += turnTokens
+	}
+
+	// 反转顺序（因为是从后往前添加的）
+	for i, j := 0, len(recentTurns)-1; i < j; i, j = i+1, j-1 {
+		recentTurns[i], recentTurns[j] = recentTurns[j], recentTurns[i]
+	}
+
+	// 3. 组合结果：第一条任务 + 截断提示(如果需要) + 最近消息
+	var result []string
+	if firstUserTurn != "" {
+		result = append(result, firstUserTurn)
+	}
+	if truncationNeeded {
+		result = append(result, "<truncated>中间对话历史已省略，但上方保留了初始任务定义</truncated>")
+	}
+	result = append(result, recentTurns...)
+
+	return strings.Join(result, "\n\n")
 }
