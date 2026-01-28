@@ -422,9 +422,16 @@
             />
           </div>
         </div>
+        <div class="form-group" style="margin-top: 12px;">
+          <label class="form-label">浏览器模式</label>
+          <select class="form-input" id="headlessMode">
+            <option value="true">无头模式（后台运行，速度快）</option>
+            <option value="false">有头模式（显示浏览器窗口）</option>
+          </select>
+        </div>
         <div class="form-group" style="margin-top: 8px;">
           <small style="color: #a1a1aa;">
-            使用多线程并发注册（无头模式），最大 8 线程
+            无头模式在后台运行，有头模式可以看到浏览器操作过程
           </small>
         </div>
         <div id="registerProgress" style="display: none; margin: 16px 0;">
@@ -642,6 +649,7 @@
       async function startBatchRegister() {
         const count = parseInt(document.getElementById('registerCount').value) || 5;
         const workers = parseInt(document.getElementById('workerCount').value) || 5;
+        const headless = document.getElementById('headlessMode').value === 'true';
         const btn = document.getElementById('startRegisterBtn');
         const progress = document.getElementById('registerProgress');
         const progressText = document.getElementById('progressText');
@@ -652,16 +660,17 @@
         btn.textContent = '注册中...';
         progress.style.display = 'block';
         log.innerHTML = '';
-        progressText.textContent = `正在注册 ${count} 个账号 (${workers} 线程并发)`;
+        const modeText = headless ? '无头模式' : '有头模式';
+        progressText.textContent = `正在注册 ${count} 个账号 (${workers} 线程, ${modeText})`;
         progressBar.style.width = '10%';
 
-        addLog(`开始批量注册: 数量=${count}, 线程=${workers}`);
+        addLog(`开始批量注册: 数量=${count}, 线程=${workers}, 模式=${modeText}`);
 
         try {
           const res = await fetch('/api/register/batch', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ count: count, workers: workers })
+            body: JSON.stringify({ count: count, workers: workers, headless: headless })
           });
           const result = await res.json();
 

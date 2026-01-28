@@ -1,4 +1,4 @@
-FROM golang:1.22-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
@@ -15,7 +15,21 @@ FROM alpine:latest
 
 WORKDIR /app
 
-RUN apk add --no-cache ca-certificates
+# 安装 Chromium 和必要依赖（chromedp 需要）
+RUN apk add --no-cache \
+    ca-certificates \
+    chromium \
+    chromium-chromedriver \
+    nss \
+    freetype \
+    freetype-dev \
+    harfbuzz \
+    ttf-freefont \
+    font-noto-cjk
+
+# 设置 Chromium 环境变量
+ENV CHROME_BIN=/usr/bin/chromium-browser
+ENV CHROME_PATH=/usr/lib/chromium/
 
 COPY --from=builder /app/server .
 COPY --from=builder /app/web ./web

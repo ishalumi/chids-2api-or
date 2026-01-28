@@ -394,14 +394,14 @@ func (a *API) HandleBatchRegister(w http.ResponseWriter, r *http.Request) {
 	if workers <= 0 {
 		workers = 5
 	}
-	if workers > 8 {
-		workers = 8
-	}
+	// 不再硬编码限制，由用户自行决定
 
-	log.Printf("[批量注册API] 收到请求: count=%d, workers=%d", count, workers)
+	headless := req.Headless // 默认 false（有头模式）
+
+	log.Printf("[批量注册API] 收到请求: count=%d, workers=%d, headless=%v", count, workers, headless)
 
 	// 执行批量注册
-	batchResult := a.register.BatchRegister(count, workers)
+	batchResult := a.register.BatchRegister(count, workers, headless)
 
 	if batchResult == nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
