@@ -566,30 +566,39 @@
     <div class="modal" id="registerModal">
       <div class="modal-content">
         <div class="modal-header">
-          <h3 class="modal-title">批量注册</h3>
+          <h3 class="modal-title">自动注册</h3>
           <button class="modal-close" onclick="closeRegisterModal()">&times;</button>
         </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">注册数量</label>
-            <input
-              type="number"
-              class="form-input"
-              id="registerCount"
-              value="5"
-              min="1"
-            />
-          </div>
-          <div class="form-group">
-            <label class="form-label">并发线程数</label>
-            <input
-              type="number"
-              class="form-input"
-              id="workerCount"
-              value="5"
-              min="1"
-              max="8"
-            />
+        <div class="form-group">
+          <label class="form-label">注册模式</label>
+          <select class="form-input" id="registerMode" onchange="toggleRegisterMode()">
+            <option value="single">单个注册</option>
+            <option value="batch">批量注册</option>
+          </select>
+        </div>
+        <div id="batchOptions" style="display: none;">
+          <div class="form-row" style="margin-top: 12px;">
+            <div class="form-group">
+              <label class="form-label">注册数量</label>
+              <input
+                type="number"
+                class="form-input"
+                id="registerCount"
+                value="5"
+                min="1"
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label">并发线程数</label>
+              <input
+                type="number"
+                class="form-input"
+                id="workerCount"
+                value="5"
+                min="1"
+                max="8"
+              />
+            </div>
           </div>
         </div>
         <div class="form-group" style="margin-top: 12px;">
@@ -599,9 +608,22 @@
             <option value="false">有头模式（显示浏览器窗口）</option>
           </select>
         </div>
+        <div class="form-group" style="margin-top: 12px;">
+          <label class="form-label">邮箱提供商</label>
+          <select class="form-input" id="mailProvider">
+            <option value="">默认（跟随后端配置）</option>
+            <option value="gpt-mail">gpt-mail（需要 API Key）</option>
+            <option value="mail.tm">mail.tm（免费）</option>
+            <option value="1secmail">1secmail（免费）</option>
+            <option value="guerrillamail">guerrillamail（免费）</option>
+            <option value="dispostable">dispostable（免费）</option>
+            <option value="dropmail">dropmail（免费）</option>
+            <option value="mailnesia">mailnesia（免费）</option>
+          </select>
+        </div>
         <div class="form-group" style="margin-top: 8px;">
           <small style="color: #a1a1aa;">
-            无头模式在后台运行，有头模式可以看到浏览器操作过程
+            无头模式在后台运行，有头模式可以看到浏览器操作过程。免费邮箱提供商无需 API Key。
           </small>
         </div>
         <div id="registerProgress" style="display: none; margin: 16px 0;">
@@ -616,10 +638,10 @@
         <button
           class="btn btn-primary"
           style="width: 100%"
-          onclick="startBatchRegister()"
+          onclick="startRegister()"
           id="startRegisterBtn"
         >
-          开始批量注册
+          开始注册
         </button>
       </div>
     </div>
@@ -935,10 +957,23 @@
         log.scrollTop = log.scrollHeight;
       }
 
-      async function startBatchRegister() {
-        const count = parseInt(document.getElementById('registerCount').value) || 5;
-        const workers = parseInt(document.getElementById('workerCount').value) || 5;
+      function toggleRegisterMode() {
+        const mode = document.getElementById('registerMode').value;
+        const batchOptions = document.getElementById('batchOptions');
+        const btn = document.getElementById('startRegisterBtn');
+        if (mode === 'batch') {
+          batchOptions.style.display = 'block';
+          btn.textContent = '开始批量注册';
+        } else {
+          batchOptions.style.display = 'none';
+          btn.textContent = '开始注册';
+        }
+      }
+
+      async function startRegister() {
+        const mode = document.getElementById('registerMode').value;
         const headless = document.getElementById('headlessMode').value === 'true';
+        const provider = document.getElementById('mailProvider').value;
         const btn = document.getElementById('startRegisterBtn');
         const progress = document.getElementById('registerProgress');
         const progressText = document.getElementById('progressText');
@@ -949,49 +984,84 @@
         btn.textContent = '注册中...';
         progress.style.display = 'block';
         log.innerHTML = '';
-        const modeText = headless ? '无头模式' : '有头模式';
-        progressText.textContent = `正在注册 ${count} 个账号 (${workers} 线程, ${modeText})`;
         progressBar.style.width = '10%';
 
-        addLog(`开始批量注册: 数量=${count}, 线程=${workers}, 模式=${modeText}`);
+        const modeText = headless ? '无头模式' : '有头模式';
+        const providerText = provider ? `, 提供商=${provider}` : '';
 
-        try {
-          const res = await fetch('/api/register/batch', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ count: count, workers: workers, headless: headless })
-          });
-          const result = await res.json();
+        if (mode === 'single') {
+          // 单个注册
+          progressText.textContent = `正在注册 1 个账号 (${modeText}${providerText})`;
+          addLog(`开始单个注册: 模式=${modeText}${providerText}`);
 
-          progressBar.style.width = '100%';
+          try {
+            const res = await fetch('/api/register', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ headless: headless, provider: provider })
+            });
+            const result = await res.json();
 
-          if (result.success) {
-            addLog(`批量注册完成!`);
-            addLog(`总数: ${result.total}, 成功: ${result.registered}, 失败: ${result.failed}, 已保存: ${result.saved}`);
-            addLog(`耗时: ${result.duration}`);
+            progressBar.style.width = '100%';
 
-            // 显示每个结果
-            if (result.results) {
-              result.results.forEach((r, i) => {
-                if (r.success) {
-                  addLog(`✓ [${i+1}] ${r.email}`);
-                } else {
-                  addLog(`✗ [${i+1}] ${r.error}`, true);
-                }
-              });
+            if (result.success) {
+              addLog(`注册成功!`);
+              addLog(`邮箱: ${result.email}`);
+              addLog(`账号ID: ${result.account_id}`);
+              progressText.textContent = '注册成功!';
+            } else {
+              addLog(`注册失败: ${result.error}`, true);
+              progressText.textContent = '注册失败';
             }
-
-            progressText.textContent = `完成! 成功: ${result.registered}/${result.total}`;
-          } else {
-            addLog(`批量注册失败: ${result.error}`, true);
-            progressText.textContent = '注册失败';
+          } catch (err) {
+            addLog(`请求异常: ${err.message}`, true);
+            progressText.textContent = '请求失败';
           }
-        } catch (err) {
-          addLog(`请求异常: ${err.message}`, true);
-          progressText.textContent = '请求失败';
+        } else {
+          // 批量注册
+          const count = parseInt(document.getElementById('registerCount').value) || 5;
+          const workers = parseInt(document.getElementById('workerCount').value) || 5;
+
+          progressText.textContent = `正在注册 ${count} 个账号 (${workers} 线程, ${modeText}${providerText})`;
+          addLog(`开始批量注册: 数量=${count}, 线程=${workers}, 模式=${modeText}${providerText}`);
+
+          try {
+            const res = await fetch('/api/register/batch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ count: count, workers: workers, headless: headless, provider: provider })
+            });
+            const result = await res.json();
+
+            progressBar.style.width = '100%';
+
+            if (result.success) {
+              addLog(`批量注册完成!`);
+              addLog(`总数: ${result.total}, 成功: ${result.registered}, 失败: ${result.failed}, 已保存: ${result.saved}`);
+              addLog(`耗时: ${result.duration}`);
+
+              if (result.results) {
+                result.results.forEach((r, i) => {
+                  if (r.success) {
+                    addLog(`✓ [${i+1}] ${r.email}`);
+                  } else {
+                    addLog(`✗ [${i+1}] ${r.error}`, true);
+                  }
+                });
+              }
+
+              progressText.textContent = `完成! 成功: ${result.registered}/${result.total}`;
+            } else {
+              addLog(`批量注册失败: ${result.error}`, true);
+              progressText.textContent = '注册失败';
+            }
+          } catch (err) {
+            addLog(`请求异常: ${err.message}`, true);
+            progressText.textContent = '请求失败';
+          }
         }
 
-        btn.textContent = '重新注册';
+        btn.textContent = mode === 'single' ? '重新注册' : '重新批量注册';
         btn.disabled = false;
         loadAccounts();
       }
