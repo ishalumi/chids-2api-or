@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"orchids-api/internal/clerk"
+	"orchids-api/internal/proxy"
 	"orchids-api/internal/register"
 	"orchids-api/internal/store"
 )
@@ -43,6 +44,8 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/register", a.HandleRegister)
 	mux.HandleFunc("/api/register/verify", a.HandleRegisterVerify)
 	mux.HandleFunc("/api/register/batch", a.HandleBatchRegister)
+	mux.HandleFunc("/api/proxy", a.HandleProxy)
+	mux.HandleFunc("/api/proxy/test", a.HandleProxyTest)
 }
 
 func (a *API) HandleAccounts(w http.ResponseWriter, r *http.Request) {
@@ -493,4 +496,83 @@ func (a *API) HandleBatchRegister(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		log.Printf("[批量注册API] JSON编码失败: %v", err)
 	}
+}
+
+// HandleProxy 处理代理配置
+func (a *API) HandleProxy(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	switch r.Method {
+	case http.MethodGet:
+		settings := proxy.GetManager().GetSettings()
+		json.NewEncoder(w).Encode(settings)
+
+	case http.MethodPut, http.MethodPost:
+		var settings proxy.ProxySettings
+		if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
+			http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		proxy.GetManager().SetSettings(settings)
+		log.Printf("[代理配置] 已更新: 注册代理=%s, 对话代理=%s",
+			settings.RegisterProxy.GetProxyURL(),
+			settings.ChatProxy.GetProxyURL())
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"message": "代理配置已更新",
+		})
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// HandleProxyTest 测试代理连接
+func (a *API) HandleProxyTest(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Type string `json:"type"` // "register" 或 "chat"
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		req.Type = "chat"
+	}
+
+	var client *http.Client
+	var proxyURL string
+	if req.Type == "register" {
+		client = proxy.CreateRegisterHTTPClient(10 * time.Second)
+		proxyURL = proxy.GetRegisterProxyURL()
+	} else {
+		client = proxy.CreateChatHTTPClient(10 * time.Second)
+		proxyURL = proxy.GetChatProxyURL()
+	}
+
+	testURL := "https://httpbin.org/ip"
+	resp, err := client.Get(testURL)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":   false,
+			"error":     err.Error(),
+			"proxy_url": proxyURL,
+		})
+		return
+	}
+	defer resp.Body.Close()
+
+	var result map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&result)
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":   true,
+		"proxy_url": proxyURL,
+		"ip":        result["origin"],
+	})
 }

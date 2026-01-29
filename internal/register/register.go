@@ -10,6 +10,7 @@ import (
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 
+	"orchids-api/internal/proxy"
 	"orchids-api/internal/tempmail"
 )
 
@@ -111,6 +112,13 @@ func (r *RegisterService) browserRegister(email, password string, headless bool)
 		chromedp.Flag("disable-infobars", true),
 		chromedp.UserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"),
 	)
+
+	// 添加代理配置
+	proxyURL := proxy.GetRegisterProxyURL()
+	if proxyURL != "" {
+		log.Printf("[自动注册] 使用代理: %s", proxyURL)
+		opts = append(opts, chromedp.ProxyServer(proxyURL))
+	}
 
 	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
 	defer cancel()
@@ -524,6 +532,13 @@ func (r *RegisterService) browserRegisterWithMail(tempMail tempmail.TempMailServ
 		chromedp.Flag("disable-infobars", true),
 		chromedp.UserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"),
 	)
+
+	// 添加代理配置
+	proxyURL := proxy.GetRegisterProxyURL()
+	if proxyURL != "" {
+		log.Printf("%s 使用代理: %s", logPrefix, proxyURL)
+		opts = append(opts, chromedp.ProxyServer(proxyURL))
+	}
 
 	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
 	defer cancel()

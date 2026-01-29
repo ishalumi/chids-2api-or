@@ -261,6 +261,90 @@
       .empty-state p {
         margin-bottom: 16px;
       }
+      .proxy-section {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+      }
+      @media (max-width: 768px) {
+        .proxy-section {
+          grid-template-columns: 1fr;
+        }
+      }
+      .proxy-card {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px;
+        padding: 20px;
+      }
+      .proxy-card h4 {
+        margin-bottom: 16px;
+        color: #e4e4e7;
+        font-size: 1rem;
+      }
+      .proxy-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        margin-left: 8px;
+      }
+      .proxy-status.active {
+        background: rgba(34, 197, 94, 0.2);
+        color: #22c55e;
+      }
+      .proxy-status.inactive {
+        background: rgba(161, 161, 170, 0.2);
+        color: #a1a1aa;
+      }
+      .form-select {
+        width: 100%;
+        padding: 12px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        color: #e4e4e7;
+        font-size: 0.875rem;
+        cursor: pointer;
+      }
+      .form-select:focus {
+        outline: none;
+        border-color: #8b5cf6;
+      }
+      .proxy-fields {
+        display: none;
+        margin-top: 12px;
+      }
+      .proxy-fields.show {
+        display: block;
+      }
+      .btn-test {
+        background: rgba(255, 255, 255, 0.1);
+        color: #e4e4e7;
+        margin-top: 12px;
+      }
+      .btn-test:hover {
+        background: rgba(255, 255, 255, 0.15);
+      }
+      .test-result {
+        margin-top: 8px;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        display: none;
+      }
+      .test-result.success {
+        display: block;
+        background: rgba(34, 197, 94, 0.1);
+        color: #22c55e;
+      }
+      .test-result.error {
+        display: block;
+        background: rgba(239, 68, 68, 0.1);
+        color: #ef4444;
+      }
     </style>
   </head>
   <body>
@@ -282,6 +366,92 @@
         <div class="stat-card">
           <div class="stat-value" id="totalRequests">0</div>
           <div class="stat-label">总请求数</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2 class="card-title">代理配置</h2>
+          <button class="btn btn-primary" onclick="saveProxySettings()">保存配置</button>
+        </div>
+        <div class="proxy-section">
+          <div class="proxy-card">
+            <h4>
+              注册代理
+              <span class="proxy-status inactive" id="registerProxyStatus">未启用</span>
+            </h4>
+            <div class="form-group">
+              <label class="form-label">代理类型</label>
+              <select class="form-select" id="registerProxyType" onchange="toggleProxyFields('register')">
+                <option value="none">直连（不使用代理）</option>
+                <option value="http">HTTP 代理</option>
+                <option value="socks5">SOCKS5 代理</option>
+              </select>
+            </div>
+            <div class="proxy-fields" id="registerProxyFields">
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">主机地址</label>
+                  <input type="text" class="form-input" id="registerProxyHost" placeholder="127.0.0.1">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">端口</label>
+                  <input type="text" class="form-input" id="registerProxyPort" placeholder="7890">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">用户名（可选）</label>
+                  <input type="text" class="form-input" id="registerProxyUser" placeholder="username">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">密码（可选）</label>
+                  <input type="password" class="form-input" id="registerProxyPass" placeholder="password">
+                </div>
+              </div>
+            </div>
+            <button class="btn btn-test" onclick="testProxy('register')">测试连接</button>
+            <div class="test-result" id="registerTestResult"></div>
+          </div>
+
+          <div class="proxy-card">
+            <h4>
+              对话代理
+              <span class="proxy-status inactive" id="chatProxyStatus">未启用</span>
+            </h4>
+            <div class="form-group">
+              <label class="form-label">代理类型</label>
+              <select class="form-select" id="chatProxyType" onchange="toggleProxyFields('chat')">
+                <option value="none">直连（不使用代理）</option>
+                <option value="http">HTTP 代理</option>
+                <option value="socks5">SOCKS5 代理</option>
+              </select>
+            </div>
+            <div class="proxy-fields" id="chatProxyFields">
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">主机地址</label>
+                  <input type="text" class="form-input" id="chatProxyHost" placeholder="127.0.0.1">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">端口</label>
+                  <input type="text" class="form-input" id="chatProxyPort" placeholder="7890">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">用户名（可选）</label>
+                  <input type="text" class="form-input" id="chatProxyUser" placeholder="username">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">密码（可选）</label>
+                  <input type="password" class="form-input" id="chatProxyPass" placeholder="password">
+                </div>
+              </div>
+            </div>
+            <button class="btn btn-test" onclick="testProxy('chat')">测试连接</button>
+            <div class="test-result" id="chatTestResult"></div>
+          </div>
         </div>
       </div>
 
@@ -456,6 +626,125 @@
 
     <script>
       let accounts = [];
+
+      // 代理配置相关函数
+      function toggleProxyFields(type) {
+        const select = document.getElementById(type + 'ProxyType');
+        const fields = document.getElementById(type + 'ProxyFields');
+        if (select.value === 'none') {
+          fields.classList.remove('show');
+        } else {
+          fields.classList.add('show');
+        }
+      }
+
+      function updateProxyStatus(type, isActive) {
+        const status = document.getElementById(type + 'ProxyStatus');
+        if (isActive) {
+          status.className = 'proxy-status active';
+          status.textContent = '已启用';
+        } else {
+          status.className = 'proxy-status inactive';
+          status.textContent = '未启用';
+        }
+      }
+
+      async function loadProxySettings() {
+        try {
+          const res = await fetch('/api/proxy');
+          const settings = await res.json();
+
+          // 注册代理
+          if (settings.register_proxy) {
+            const rp = settings.register_proxy;
+            document.getElementById('registerProxyType').value = rp.type || 'none';
+            document.getElementById('registerProxyHost').value = rp.host || '';
+            document.getElementById('registerProxyPort').value = rp.port || '';
+            document.getElementById('registerProxyUser').value = rp.username || '';
+            document.getElementById('registerProxyPass').value = rp.password || '';
+            toggleProxyFields('register');
+            updateProxyStatus('register', rp.type && rp.type !== 'none' && rp.host);
+          }
+
+          // 对话代理
+          if (settings.chat_proxy) {
+            const cp = settings.chat_proxy;
+            document.getElementById('chatProxyType').value = cp.type || 'none';
+            document.getElementById('chatProxyHost').value = cp.host || '';
+            document.getElementById('chatProxyPort').value = cp.port || '';
+            document.getElementById('chatProxyUser').value = cp.username || '';
+            document.getElementById('chatProxyPass').value = cp.password || '';
+            toggleProxyFields('chat');
+            updateProxyStatus('chat', cp.type && cp.type !== 'none' && cp.host);
+          }
+        } catch (err) {
+          console.error('加载代理配置失败:', err);
+        }
+      }
+
+      async function saveProxySettings() {
+        const settings = {
+          register_proxy: {
+            type: document.getElementById('registerProxyType').value,
+            host: document.getElementById('registerProxyHost').value,
+            port: document.getElementById('registerProxyPort').value,
+            username: document.getElementById('registerProxyUser').value,
+            password: document.getElementById('registerProxyPass').value
+          },
+          chat_proxy: {
+            type: document.getElementById('chatProxyType').value,
+            host: document.getElementById('chatProxyHost').value,
+            port: document.getElementById('chatProxyPort').value,
+            username: document.getElementById('chatProxyUser').value,
+            password: document.getElementById('chatProxyPass').value
+          }
+        };
+
+        try {
+          const res = await fetch('/api/proxy', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings)
+          });
+          const result = await res.json();
+          if (result.success) {
+            alert('代理配置已保存');
+            updateProxyStatus('register', settings.register_proxy.type !== 'none' && settings.register_proxy.host);
+            updateProxyStatus('chat', settings.chat_proxy.type !== 'none' && settings.chat_proxy.host);
+          } else {
+            alert('保存失败: ' + result.error);
+          }
+        } catch (err) {
+          alert('保存失败: ' + err.message);
+        }
+      }
+
+      async function testProxy(type) {
+        const resultEl = document.getElementById(type + 'TestResult');
+        resultEl.className = 'test-result';
+        resultEl.textContent = '测试中...';
+        resultEl.style.display = 'block';
+
+        try {
+          const res = await fetch('/api/proxy/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: type })
+          });
+          const result = await res.json();
+
+          if (result.success) {
+            resultEl.className = 'test-result success';
+            resultEl.textContent = '连接成功! IP: ' + result.ip + (result.proxy_url ? ' (代理: ' + result.proxy_url + ')' : ' (直连)');
+          } else {
+            resultEl.className = 'test-result error';
+            resultEl.textContent = '连接失败: ' + result.error;
+          }
+        } catch (err) {
+          resultEl.className = 'test-result error';
+          resultEl.textContent = '测试失败: ' + err.message;
+        }
+      }
 
       async function loadAccounts() {
         try {
@@ -729,7 +1018,10 @@
         event.target.value = "";
       }
 
-      document.addEventListener("DOMContentLoaded", loadAccounts);
+      document.addEventListener("DOMContentLoaded", function() {
+        loadAccounts();
+        loadProxySettings();
+      });
     </script>
   </body>
 </html>

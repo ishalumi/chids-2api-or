@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"orchids-api/internal/proxy"
 )
 
 type ClientResponse struct {
@@ -50,7 +52,8 @@ func FetchAccountInfo(clientCookie string) (*AccountInfo, error) {
 	req.Header.Set("Accept-Language", "zh-CN")
 	req.AddCookie(&http.Cookie{Name: "__client", Value: clientCookie})
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	// 使用对话代理
+	client := proxy.CreateChatHTTPClient(10 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch client info: %w", err)

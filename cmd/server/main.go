@@ -14,6 +14,7 @@ import (
 	"orchids-api/internal/handler"
 	"orchids-api/internal/loadbalancer"
 	"orchids-api/internal/middleware"
+	"orchids-api/internal/proxy"
 	"orchids-api/internal/store"
 	"orchids-api/web"
 )
@@ -46,6 +47,15 @@ func main() {
 
 	cfg := config.Load()
 
+	// 初始化代理配置
+	proxy.InitFromEnv(cfg.RegisterProxy, cfg.ChatProxy)
+	if cfg.RegisterProxy != "" {
+		log.Printf("注册代理已配置: %s", cfg.RegisterProxy)
+	}
+	if cfg.ChatProxy != "" {
+		log.Printf("对话代理已配置: %s", cfg.ChatProxy)
+	}
+
 	// 启动时清理所有调试日志
 	if cfg.DebugEnabled {
 		debug.CleanupAllLogs()
@@ -77,6 +87,8 @@ func main() {
 	mux.HandleFunc("/api/register", middleware.BasicAuth(cfg.AdminUser, cfg.AdminPass, apiHandler.HandleRegister))
 	mux.HandleFunc("/api/register/verify", middleware.BasicAuth(cfg.AdminUser, cfg.AdminPass, apiHandler.HandleRegisterVerify))
 	mux.HandleFunc("/api/register/batch", middleware.BasicAuth(cfg.AdminUser, cfg.AdminPass, apiHandler.HandleBatchRegister))
+	mux.HandleFunc("/api/proxy", middleware.BasicAuth(cfg.AdminUser, cfg.AdminPass, apiHandler.HandleProxy))
+	mux.HandleFunc("/api/proxy/test", middleware.BasicAuth(cfg.AdminUser, cfg.AdminPass, apiHandler.HandleProxyTest))
 
 	mux.HandleFunc(cfg.AdminPath+"/", middleware.BasicAuthHandler(cfg.AdminUser, cfg.AdminPass, http.StripPrefix(cfg.AdminPath, web.StaticHandler())))
 

@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  chids-2api:
+    build: .
+    container_name: chids-2api
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    volumes:
+      - ./data:/app/data
+      - ./debug:/app/debug
+    environment:
+      - PORT=3002
+      - DEBUG_ENABLED=true
+      - ADMIN_USER=admin
+      - ADMIN_PASS=admin123
+      - ADMIN_PATH=/admin
+      # 代理配置（可选）
+      # 格式: http://user:pass@host:port 或 socks5://host:port
+      - REGISTER_PROXY=
+      - CHAT_PROXY=
+    networks:
+      - 1panel-network
+
+networks:
+  1panel-network:
+    external: true

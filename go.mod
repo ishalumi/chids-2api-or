@@ -2,7 +2,10 @@ module orchids-api
 
 go 1.24
 
-require modernc.org/sqlite v1.28.0
+require (
+	modernc.org/sqlite v1.28.0
+	golang.org/x/net v0.34.0
+)
 
 require (
 	github.com/chromedp/cdproto v0.0.0-20250724212937-08a3db8b4327 // indirect

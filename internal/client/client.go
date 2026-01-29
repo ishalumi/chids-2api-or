@@ -10,9 +10,11 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"strings"
+	"time"
 
 	"orchids-api/internal/config"
 	"orchids-api/internal/debug"
+	"orchids-api/internal/proxy"
 	"orchids-api/internal/store"
 )
 
@@ -52,7 +54,7 @@ type SSEMessage struct {
 func New(cfg *config.Config) *Client {
 	return &Client{
 		config:     cfg,
-		httpClient: &http.Client{},
+		httpClient: proxy.CreateChatHTTPClient(60 * time.Second),
 	}
 }
 
@@ -69,7 +71,7 @@ func NewFromAccount(acc *store.Account) *Client {
 	return &Client{
 		config:     cfg,
 		account:    acc,
-		httpClient: &http.Client{},
+		httpClient: proxy.CreateChatHTTPClient(60 * time.Second),
 	}
 }
 

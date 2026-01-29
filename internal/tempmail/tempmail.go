@@ -8,10 +8,14 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
+
+	"orchids-api/internal/proxy"
 )
 
 // TempMailService 临时邮箱服务接口
@@ -25,7 +29,7 @@ type TempMailService interface {
 type ProviderType int
 
 const (
-	ProviderMailTM ProviderType = iota
+	ProviderGPTMail ProviderType = iota
 	Provider1SecMail
 	ProviderGuerrilla
 	ProviderDispostable
@@ -33,7 +37,7 @@ const (
 	ProviderMailnesia
 )
 
-var providerNames = []string{"mail.tm", "1secmail", "guerrillamail", "dispostable", "dropmail", "mailnesia"}
+var providerNames = []string{"gpt-mail", "1secmail", "guerrillamail", "dispostable", "dropmail", "mailnesia"}
 
 // ===================== 多提供商工厂 =====================
 
@@ -45,28 +49,28 @@ type MultiProvider struct {
 
 var globalProvider = &MultiProvider{}
 
-// AllProviders 返回所有可用的提供商类型（目前只有 mail.tm 能通过 Orchids 验证）
+// AllProviders 返回所有可用的提供商类型（目前仅启用 gpt-mail）
 func AllProviders() []ProviderType {
 	return []ProviderType{
-		ProviderMailTM,
+		ProviderGPTMail,
 	}
 }
 
-// NewTempMail 创建临时邮箱服务（只使用 mail.tm）
+// NewTempMail 创建临时邮箱服务（默认使用 gpt-mail）
 func NewTempMail() TempMailService {
-	return NewMailTM()
+	return NewGPTMail()
 }
 
-// Next 获取下一个提供商（只使用 mail.tm）
+// Next 获取下一个提供商（默认使用 gpt-mail）
 func (mp *MultiProvider) Next() TempMailService {
-	return NewMailTM()
+	return NewGPTMail()
 }
 
 // NewTempMailByProvider 根据指定提供商创建
 func NewTempMailByProvider(p ProviderType) TempMailService {
 	switch p {
-	case ProviderMailTM:
-		return NewMailTM()
+	case ProviderGPTMail:
+		return NewGPTMail()
 	case Provider1SecMail:
 		return New1SecMailProvider()
 	case ProviderGuerrilla:
@@ -78,7 +82,7 @@ func NewTempMailByProvider(p ProviderType) TempMailService {
 	case ProviderMailnesia:
 		return NewMailnesia()
 	default:
-		return NewMailTM()
+		return NewGPTMail()
 	}
 }
 
@@ -132,7 +136,7 @@ type mailTMMessageDetail struct {
 
 func NewMailTM() *MailTM {
 	return &MailTM{
-		client:   &http.Client{Timeout: 30 * time.Second},
+		client:   proxy.CreateRegisterHTTPClient(30 * time.Second),
 		password: "TempPass" + generateRandomString(8) + "!",
 	}
 }
@@ -353,7 +357,7 @@ var secMailDomains = []string{"1secmail.com", "1secmail.org", "1secmail.net"}
 
 func New1SecMailProvider() *SecMail {
 	return &SecMail{
-		client: &http.Client{Timeout: 30 * time.Second},
+		client: proxy.CreateRegisterHTTPClient(30 * time.Second),
 	}
 }
 
@@ -461,7 +465,7 @@ type GuerrillaMail struct {
 
 func NewGuerrillaMail() *GuerrillaMail {
 	return &GuerrillaMail{
-		client: &http.Client{Timeout: 30 * time.Second},
+		client: proxy.CreateRegisterHTTPClient(30 * time.Second),
 	}
 }
 
@@ -587,7 +591,7 @@ type Dropmail struct {
 
 func NewDropmail() *Dropmail {
 	return &Dropmail{
-		client: &http.Client{Timeout: 30 * time.Second},
+		client: proxy.CreateRegisterHTTPClient(30 * time.Second),
 	}
 }
 
@@ -714,7 +718,7 @@ type Mailnesia struct {
 
 func NewMailnesia() *Mailnesia {
 	return &Mailnesia{
-		client: &http.Client{Timeout: 30 * time.Second},
+		client: proxy.CreateRegisterHTTPClient(30 * time.Second),
 	}
 }
 
@@ -781,7 +785,7 @@ var dispostableDomains = []string{"dispostable.com"}
 
 func NewDispostable() *Dispostable {
 	return &Dispostable{
-		client: &http.Client{Timeout: 30 * time.Second},
+		client: proxy.CreateRegisterHTTPClient(30 * time.Second),
 	}
 }
 
