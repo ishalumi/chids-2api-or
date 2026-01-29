@@ -21,7 +21,7 @@ const (
 
 // RegisterService 注册服务
 type RegisterService struct {
-	tempMail *tempmail.MailTM
+	tempMail tempmail.TempMailService
 	headless bool
 }
 
@@ -61,7 +61,7 @@ type BatchRegisterResult struct {
 // New 创建注册服务
 func New() *RegisterService {
 	return &RegisterService{
-		tempMail: tempmail.New1SecMail(),
+		tempMail: tempmail.NewTempMail(),
 		headless: false, // 默认有头模式，方便调试
 	}
 }
@@ -432,7 +432,7 @@ func (r *RegisterService) BatchRegister(count, workers int, headless bool) *Batc
 			for taskID := range tasks {
 				log.Printf("[Worker-%d] 开始注册任务 #%d", workerID, taskID)
 
-				// 只使用 mail.tm（其他提供商的邮箱 Orchids 不接受）
+				// 只使用 gpt-mail（避免邮箱域名不被 Orchids 接受）
 				tempMail := tempmail.NewTempMail()
 				singleResult := r.registerSingle(tempMail, workerID, taskID, headless)
 				results <- singleResult
@@ -442,11 +442,11 @@ func (r *RegisterService) BatchRegister(count, workers int, headless bool) *Batc
 		}(i + 1)
 	}
 
-	// 发送任务（增加延迟避免 mail.tm 429）
+	// 发送任务（增加延迟避免 gpt-mail 限频）
 	go func() {
 		for i := 0; i < count; i++ {
 			tasks <- i + 1
-			// 每个任务之间延迟 2 秒，让 workers 错开请求 mail.tm
+			// 每个任务之间延迟 2 秒，让 workers 错开请求 gpt-mail
 			if i < count-1 {
 				time.Sleep(2 * time.Second)
 			}
