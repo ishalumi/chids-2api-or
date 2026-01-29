@@ -12,6 +12,7 @@ import (
 	"orchids-api/internal/proxy"
 	"orchids-api/internal/register"
 	"orchids-api/internal/store"
+	"orchids-api/internal/tempmail"
 )
 
 type API struct {
@@ -260,7 +261,7 @@ func (a *API) HandleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 自动模式：使用临时邮箱
-	result, err := a.register.RegisterWithOptions(req.Headless)
+	result, err := a.register.RegisterWithOptions(req.Headless, req.Provider)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -401,10 +402,18 @@ func (a *API) HandleBatchRegister(w http.ResponseWriter, r *http.Request) {
 
 	headless := req.Headless // 默认 false（有头模式）
 
-	log.Printf("[批量注册API] 收到请求: count=%d, workers=%d, headless=%v", count, workers, headless)
+	if _, err := tempmail.NewTempMailByName(req.Provider); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	log.Printf("[批量注册API] 收到请求: count=%d, workers=%d, headless=%v, provider=%s", count, workers, headless, req.Provider)
 
 	// 执行批量注册
-	batchResult := a.register.BatchRegister(count, workers, headless)
+	batchResult := a.register.BatchRegister(count, workers, headless, req.Provider)
 
 	if batchResult == nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{

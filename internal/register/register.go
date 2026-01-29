@@ -21,7 +21,6 @@ const (
 
 // RegisterService 注册服务
 type RegisterService struct {
-	tempMail tempmail.TempMailService
 	headless bool
 }
 
@@ -42,6 +41,7 @@ type RegisterJSON struct {
 	Password string `json:"password,omitempty"`
 	Code     string `json:"code,omitempty"`
 	SignUpID string `json:"sign_up_id,omitempty"`
+	Provider string `json:"provider,omitempty"` // 邮箱提供商
 	Headless bool   `json:"headless,omitempty"`
 	Count    int    `json:"count,omitempty"`    // 批量注册数量
 	Workers  int    `json:"workers,omitempty"`  // 并发线程数
@@ -61,22 +61,28 @@ type BatchRegisterResult struct {
 // New 创建注册服务
 func New() *RegisterService {
 	return &RegisterService{
-		tempMail: tempmail.NewTempMail(),
 		headless: false, // 默认有头模式，方便调试
 	}
 }
 
 // Register 执行完整的注册流程（使用临时邮箱）
 func (r *RegisterService) Register() (*RegisterResult, error) {
-	return r.RegisterWithOptions(false)
+	return r.RegisterWithOptions(false, "")
 }
 
 // RegisterWithOptions 带选项的注册
-func (r *RegisterService) RegisterWithOptions(headless bool) (*RegisterResult, error) {
+func (r *RegisterService) RegisterWithOptions(headless bool, provider string) (*RegisterResult, error) {
 	result := &RegisterResult{}
 
 	// 1. 生成临时邮箱
-	email, err := r.tempMail.GenerateEmail()
+	tempMail, err := tempmail.NewTempMailByName(provider)
+	if err != nil {
+		return nil, fmt.Errorf("选择邮箱服务失败: %w", err)
+	}
+
+	log.Printf("[自动注册] 使用邮箱提供商: %s", tempMail.Name())
+
+	email, err := tempMail.GenerateEmail()
 	if err != nil {
 		return nil, fmt.Errorf("生成临时邮箱失败: %w", err)
 	}
@@ -85,7 +91,7 @@ func (r *RegisterService) RegisterWithOptions(headless bool) (*RegisterResult, e
 	log.Printf("[自动注册] 生成临时邮箱: %s", email)
 
 	// 2. 使用浏览器自动化完成注册
-	clientCookie, err := r.browserRegister(email, defaultPassword, headless)
+	clientCookie, err := r.browserRegister(tempMail, email, defaultPassword, headless)
 	if err != nil {
 		result.Error = err.Error()
 		return result, err
@@ -99,7 +105,7 @@ func (r *RegisterService) RegisterWithOptions(headless bool) (*RegisterResult, e
 }
 
 // browserRegister 使用 chromedp 进行浏览器自动化注册
-func (r *RegisterService) browserRegister(email, password string, headless bool) (string, error) {
+func (r *RegisterService) browserRegister(tempMail tempmail.TempMailService, email, password string, headless bool) (string, error) {
 	// 创建浏览器上下文
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", headless),
@@ -283,7 +289,7 @@ func (r *RegisterService) browserRegister(email, password string, headless bool)
 
 	// 8. 获取验证码邮件
 	log.Printf("[自动注册] 等待验证码邮件...")
-	code, err := r.tempMail.WaitForVerificationCode(email, 120*time.Second)
+	code, err := tempMail.WaitForVerificationCode(email, 120*time.Second)
 	if err != nil {
 		return "", fmt.Errorf("获取验证码失败: %w", err)
 	}
@@ -394,7 +400,7 @@ func truncate(s string, maxLen int) string {
 
 // BatchRegister 批量注册（多线程）
 // count: 注册数量, workers: 并发线程数, headless: 是否无头模式
-func (r *RegisterService) BatchRegister(count, workers int, headless bool) *BatchRegisterResult {
+func (r *RegisterService) BatchRegister(count, workers int, headless bool, provider string) *BatchRegisterResult {
 	if count <= 0 {
 		count = 1
 	}
@@ -412,7 +418,7 @@ func (r *RegisterService) BatchRegister(count, workers int, headless bool) *Batc
 		StartTime: time.Now(),
 	}
 
-	log.Printf("[批量注册] 开始批量注册: 总数=%d, 线程数=%d, 无头模式=%v", count, workers, headless)
+	log.Printf("[批量注册] 开始批量注册: 总数=%d, 线程数=%d, 无头模式=%v, 提供商=%s", count, workers, headless, provider)
 
 	// 创建任务通道和结果通道
 	tasks := make(chan int, count)
@@ -432,8 +438,15 @@ func (r *RegisterService) BatchRegister(count, workers int, headless bool) *Batc
 			for taskID := range tasks {
 				log.Printf("[Worker-%d] 开始注册任务 #%d", workerID, taskID)
 
-				// 只使用 gpt-mail（避免邮箱域名不被 Orchids 接受）
-				tempMail := tempmail.NewTempMail()
+				tempMail, err := tempmail.NewTempMailByName(provider)
+				if err != nil {
+					results <- &RegisterResult{
+						Success: false,
+						Error:   fmt.Sprintf("选择邮箱服务失败: %v", err),
+					}
+					continue
+				}
+
 				singleResult := r.registerSingle(tempMail, workerID, taskID, headless)
 				results <- singleResult
 
@@ -442,11 +455,11 @@ func (r *RegisterService) BatchRegister(count, workers int, headless bool) *Batc
 		}(i + 1)
 	}
 
-	// 发送任务（增加延迟避免 gpt-mail 限频）
+	// 发送任务（增加延迟避免邮箱服务限频）
 	go func() {
 		for i := 0; i < count; i++ {
 			tasks <- i + 1
-			// 每个任务之间延迟 2 秒，让 workers 错开请求 gpt-mail
+			// 每个任务之间延迟 2 秒，让 workers 错开请求
 			if i < count-1 {
 				time.Sleep(2 * time.Second)
 			}

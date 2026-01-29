@@ -10,16 +10,8 @@ services:
     volumes:
       - ./data:/app/data
       - ./debug:/app/debug
-    environment:
-      - PORT=3002
-      - DEBUG_ENABLED=true
-      - ADMIN_USER=admin
-      - ADMIN_PASS=admin123
-      - ADMIN_PATH=/admin
-      # 代理配置（可选）
-      # 格式: http://user:pass@host:port 或 socks5://host:port
-      - REGISTER_PROXY=
-      - CHAT_PROXY=
+    env_file:
+      - .env
     networks:
       - 1panel-network
 

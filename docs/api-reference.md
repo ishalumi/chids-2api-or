@@ -12,6 +12,9 @@
 | `/api/accounts/{id}` | DELETE | 删除账号 | Basic Auth |
 | `/api/export` | GET | 导出账号数据 (JSON) | Basic Auth |
 | `/api/import` | POST | 导入账号数据 (JSON) | Basic Auth |
+| `/api/register` | POST | 自动注册账号 | Basic Auth |
+| `/api/register/verify` | POST | 手动验证码验证 | Basic Auth |
+| `/api/register/batch` | POST | 批量自动注册 | Basic Auth |
 | `/health` | GET | 健康检查 | 无 |
 | `{ADMIN_PATH}/*` | GET | 管理界面 | Basic Auth |
 
@@ -62,3 +65,30 @@ SSE 流式响应，兼容 Claude API 格式。
 |----------|----------|
 | `claude-opus-4-5-*` | `claude-opus-4.5` |
 | `claude-haiku-4-5-*` | `gemini-3-flash` |
+
+## /api/register 端点
+
+自动注册账号（使用临时邮箱）。请求体可选字段：
+
+```json
+{
+  "headless": false,
+  "provider": "gpt-mail"
+}
+```
+
+- `headless`: 是否无头模式（默认 false）
+- `provider`: 邮箱提供商，可选：gpt-mail、mail.tm、1secmail、guerrillamail、dispostable、dropmail、mailnesia
+
+## /api/register/batch 端点
+
+批量自动注册。请求体示例：
+
+```json
+{
+  "count": 5,
+  "workers": 3,
+  "headless": false,
+  "provider": "mail.tm"
+}
+```

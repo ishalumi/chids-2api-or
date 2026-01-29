@@ -11,6 +11,7 @@
 | `ADMIN_PATH` | /admin | 管理界面路径 |
 | `GPT_MAIL_API_KEY` | gpt-test | GPTMail API Key（支持从 `gpt-mail/gpt-key.txt` 读取） |
 | `GPT_MAIL_BASE_URL` | https://mail.chatgpt.org.uk | GPTMail API 基础地址 |
+| `TEMP_MAIL_PROVIDER` | gpt-mail | 默认临时邮箱提供商（如 `gpt-mail`、`mail.tm`） |
 
 ## 配置文件
 
@@ -24,6 +25,7 @@ ADMIN_PASS=your_password
 ADMIN_PATH=/your_admin_path
 GPT_MAIL_API_KEY=gpt-test
 GPT_MAIL_BASE_URL=https://mail.chatgpt.org.uk
+TEMP_MAIL_PROVIDER=gpt-mail
 ```
 
 ## 配置加载
@@ -35,6 +37,7 @@ GPT_MAIL_BASE_URL=https://mail.chatgpt.org.uk
 3. 默认值
 
 > 如果未设置 `GPT_MAIL_API_KEY`，会尝试读取项目内的 `gpt-mail/gpt-key.txt`。
+> `TEMP_MAIL_PROVIDER` 可选值：gpt-mail、mail.tm、1secmail、guerrillamail、dispostable、dropmail、mailnesia。
 
 ## 安全建议
 

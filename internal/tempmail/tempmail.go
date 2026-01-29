@@ -31,6 +31,7 @@ type ProviderType int
 
 const (
 	ProviderGPTMail ProviderType = iota
+	ProviderMailTM
 	Provider1SecMail
 	ProviderGuerrilla
 	ProviderDispostable
@@ -38,7 +39,12 @@ const (
 	ProviderMailnesia
 )
 
-var providerNames = []string{"gpt-mail", "1secmail", "guerrillamail", "dispostable", "dropmail", "mailnesia"}
+const (
+	defaultTempMailProvider = "gpt-mail"
+	envTempMailProvider     = "TEMP_MAIL_PROVIDER"
+)
+
+var providerNames = []string{"gpt-mail", "mail.tm", "1secmail", "guerrillamail", "dispostable", "dropmail", "mailnesia"}
 
 // ===================== 多提供商工厂 =====================
 
@@ -50,21 +56,32 @@ type MultiProvider struct {
 
 var globalProvider = &MultiProvider{}
 
-// AllProviders 返回所有可用的提供商类型（目前仅启用 gpt-mail）
+// AllProviders 返回所有可用的提供商类型
 func AllProviders() []ProviderType {
 	return []ProviderType{
 		ProviderGPTMail,
+		ProviderMailTM,
+		Provider1SecMail,
+		ProviderGuerrilla,
+		ProviderDispostable,
+		ProviderDropmail,
+		ProviderMailnesia,
 	}
 }
 
-// NewTempMail 创建临时邮箱服务（默认使用 gpt-mail）
+// NewTempMail 创建临时邮箱服务（基于环境变量默认值）
 func NewTempMail() TempMailService {
-	return NewGPTMail()
+	service, err := NewTempMailByName("")
+	if err != nil {
+		log.Printf("[tempmail] 选择默认提供商失败: %v，回退到 gpt-mail", err)
+		return NewGPTMail()
+	}
+	return service
 }
 
-// Next 获取下一个提供商（默认使用 gpt-mail）
+// Next 获取下一个提供商（基于环境变量默认值）
 func (mp *MultiProvider) Next() TempMailService {
-	return NewGPTMail()
+	return NewTempMail()
 }
 
 // NewTempMailByProvider 根据指定提供商创建
@@ -72,6 +89,8 @@ func NewTempMailByProvider(p ProviderType) TempMailService {
 	switch p {
 	case ProviderGPTMail:
 		return NewGPTMail()
+	case ProviderMailTM:
+		return NewMailTM()
 	case Provider1SecMail:
 		return New1SecMailProvider()
 	case ProviderGuerrilla:
@@ -85,6 +104,48 @@ func NewTempMailByProvider(p ProviderType) TempMailService {
 	default:
 		return NewGPTMail()
 	}
+}
+
+// NewTempMailByName 根据提供商名称创建
+func NewTempMailByName(name string) (TempMailService, error) {
+	selected := strings.TrimSpace(name)
+	if selected == "" {
+		selected = DefaultProviderName()
+	}
+	normalized := normalizeProviderName(selected)
+	switch normalized {
+	case "gpt-mail", "gptmail", "gptmail.com", "gpt-mail.com":
+		return NewGPTMail(), nil
+	case "mail.tm", "mailtm", "mail-tm":
+		return NewMailTM(), nil
+	case "1secmail", "1sec", "1sec-mail":
+		return New1SecMailProvider(), nil
+	case "guerrillamail", "guerrilla", "guerrilla-mail":
+		return NewGuerrillaMail(), nil
+	case "dispostable":
+		return NewDispostable(), nil
+	case "dropmail", "dropmail.me":
+		return NewDropmail(), nil
+	case "mailnesia":
+		return NewMailnesia(), nil
+	default:
+		return nil, fmt.Errorf("未知邮箱提供商: %s，可选: %s", selected, strings.Join(providerNames, ", "))
+	}
+}
+
+// DefaultProviderName 获取默认提供商名称（可通过环境变量覆盖）
+func DefaultProviderName() string {
+	if value := strings.TrimSpace(os.Getenv(envTempMailProvider)); value != "" {
+		return value
+	}
+	return defaultTempMailProvider
+}
+
+func normalizeProviderName(name string) string {
+	value := strings.ToLower(strings.TrimSpace(name))
+	value = strings.ReplaceAll(value, "_", "-")
+	value = strings.ReplaceAll(value, " ", "")
+	return value
 }
 
 // ===================== GPTMail 提供商 =====================
@@ -338,6 +399,264 @@ func readGPTMailKeyFile(path string) string {
 		return line
 	}
 	return ""
+}
+
+// ===================== Mail.tm 提供商 =====================
+
+type MailTM struct {
+	client   *http.Client
+	email    string
+	password string
+	token    string
+}
+
+type mailTMDomain struct {
+	Domain string `json:"domain"`
+}
+
+type mailTMDomainsResponse struct {
+	Members []mailTMDomain `json:"hydra:member"`
+}
+
+type mailTMAccount struct {
+	ID      string `json:"id"`
+	Address string `json:"address"`
+}
+
+type mailTMToken struct {
+	Token string `json:"token"`
+}
+
+type mailTMMessage struct {
+	ID      string        `json:"id"`
+	From    mailTMAddress `json:"from"`
+	Subject string        `json:"subject"`
+}
+
+type mailTMAddress struct {
+	Address string `json:"address"`
+	Name    string `json:"name"`
+}
+
+type mailTMMessagesResponse struct {
+	Members []mailTMMessage `json:"hydra:member"`
+}
+
+type mailTMMessageDetail struct {
+	ID      string   `json:"id"`
+	Subject string   `json:"subject"`
+	Text    string   `json:"text"`
+	Html    []string `json:"html"`
+}
+
+func NewMailTM() *MailTM {
+	return &MailTM{
+		client:   proxy.CreateRegisterHTTPClient(30 * time.Second),
+		password: "TempPass" + generateRandomString(8) + "!",
+	}
+}
+
+func (m *MailTM) Name() string {
+	return "mail.tm"
+}
+
+func (m *MailTM) GenerateEmail() (string, error) {
+	maxRetries := 5
+
+	for retry := 0; retry < maxRetries; retry++ {
+		if retry > 0 {
+			// 重试前等待，指数退避避免 429
+			waitTime := time.Duration(3+retry*3) * time.Second
+			log.Printf("[mail.tm] 重试 #%d，等待 %v...", retry, waitTime)
+			time.Sleep(waitTime)
+		}
+
+		email, err := m.tryGenerateEmail()
+		if err == nil {
+			return email, nil
+		}
+
+		// 如果是 429 错误，继续重试
+		if strings.Contains(err.Error(), "429") {
+			log.Printf("[mail.tm] 遇到 429 限制，将重试...")
+			continue
+		}
+
+		// 其他错误直接返回
+		return "", err
+	}
+
+	return "", fmt.Errorf("[mail.tm] 重试 %d 次后仍然失败", maxRetries)
+}
+
+func (m *MailTM) tryGenerateEmail() (string, error) {
+	resp, err := m.client.Get("https://api.mail.tm/domains")
+	if err != nil {
+		return "", fmt.Errorf("[mail.tm] 获取域名失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("[mail.tm] 读取域名响应失败: %w", err)
+	}
+
+	if resp.StatusCode == 429 {
+		return "", fmt.Errorf("[mail.tm] 请求过于频繁 (429)")
+	}
+
+	var domainsResp mailTMDomainsResponse
+	if err := json.Unmarshal(body, &domainsResp); err != nil {
+		return "", fmt.Errorf("[mail.tm] 解析域名响应失败: %w", err)
+	}
+
+	if len(domainsResp.Members) == 0 {
+		return "", fmt.Errorf("[mail.tm] 没有可用域名")
+	}
+
+	domain := domainsResp.Members[0].Domain
+	username := generateRandomString(10)
+	email := fmt.Sprintf("%s@%s", username, domain)
+
+	accountData := map[string]string{
+		"address":  email,
+		"password": m.password,
+	}
+	jsonData, _ := json.Marshal(accountData)
+
+	req, _ := http.NewRequest("POST", "https://api.mail.tm/accounts", bytes.NewBuffer(jsonData))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err = m.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("[mail.tm] 创建账户失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ = io.ReadAll(resp.Body)
+	if resp.StatusCode == 429 {
+		return "", fmt.Errorf("[mail.tm] 请求过于频繁 (429)")
+	}
+	if resp.StatusCode != 201 {
+		return "", fmt.Errorf("[mail.tm] 创建账户失败 (%d): %s", resp.StatusCode, string(body))
+	}
+
+	var account mailTMAccount
+	if err := json.Unmarshal(body, &account); err != nil {
+		return "", fmt.Errorf("[mail.tm] 解析账户响应失败: %w", err)
+	}
+
+	m.email = email
+	log.Printf("[mail.tm] 创建成功: %s", email)
+
+	if err := m.login(); err != nil {
+		return "", fmt.Errorf("[mail.tm] 登录失败: %w", err)
+	}
+
+	return email, nil
+}
+
+func (m *MailTM) login() error {
+	loginData := map[string]string{
+		"address":  m.email,
+		"password": m.password,
+	}
+	jsonData, _ := json.Marshal(loginData)
+
+	req, _ := http.NewRequest("POST", "https://api.mail.tm/token", bytes.NewBuffer(jsonData))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := m.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("登录失败 (%d): %s", resp.StatusCode, string(body))
+	}
+
+	var token mailTMToken
+	if err := json.Unmarshal(body, &token); err != nil {
+		return err
+	}
+
+	m.token = token.Token
+	return nil
+}
+
+func (m *MailTM) WaitForVerificationCode(email string, timeout time.Duration) (string, error) {
+	startTime := time.Now()
+	pollInterval := 3 * time.Second
+	checkCount := 0
+
+	for {
+		if time.Since(startTime) > timeout {
+			return "", fmt.Errorf("[mail.tm] 超时等待验证码邮件")
+		}
+
+		checkCount++
+		log.Printf("[mail.tm 检查 #%d] 正在检查邮箱...", checkCount)
+
+		req, _ := http.NewRequest("GET", "https://api.mail.tm/messages", nil)
+		req.Header.Set("Authorization", "Bearer "+m.token)
+
+		resp, err := m.client.Do(req)
+		if err != nil {
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode != 200 {
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		var messagesResp mailTMMessagesResponse
+		if err := json.Unmarshal(body, &messagesResp); err != nil {
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		for _, msg := range messagesResp.Members {
+			detailReq, _ := http.NewRequest("GET", "https://api.mail.tm/messages/"+msg.ID, nil)
+			detailReq.Header.Set("Authorization", "Bearer "+m.token)
+
+			detailResp, err := m.client.Do(detailReq)
+			if err != nil {
+				continue
+			}
+
+			detailBody, _ := io.ReadAll(detailResp.Body)
+			detailResp.Body.Close()
+
+			var detail mailTMMessageDetail
+			if err := json.Unmarshal(detailBody, &detail); err != nil {
+				continue
+			}
+
+			code := extractVerificationCode(detail.Text)
+			if code == "" && len(detail.Html) > 0 {
+				for _, html := range detail.Html {
+					code = extractVerificationCode(html)
+					if code != "" {
+						break
+					}
+				}
+			}
+
+			if code != "" {
+				log.Printf("[mail.tm] 找到验证码: %s", code)
+				return code, nil
+			}
+		}
+
+		time.Sleep(pollInterval)
+	}
 }
 
 // ===================== 1secmail 提供商 =====================
